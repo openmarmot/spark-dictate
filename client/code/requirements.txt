@@ -1,0 +1,5 @@
+# requirements.txt — absolute minimal (May 2026 stable)
+requests==2.34.2
+pynput==1.8.2
+sounddevice==0.5.5
+numpy==2.4.5
