@@ -1,4 +1,4 @@
-# tts-spark
+# spark-dictate
 
 A lightweight, cross-platform push-to-talk dictation tool that sends audio from your local microphone to **whisper.cpp** running on a DGX Spark (or other NVIDIA hardware) and copies the transcription to your clipboard.
 
