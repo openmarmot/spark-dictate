@@ -216,3 +216,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# spark-dictate client config (user-entered settings)
+client/code/client_config.json

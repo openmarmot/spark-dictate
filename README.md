@@ -9,6 +9,7 @@ A lightweight, cross-platform push-to-talk dictation tool that sends audio from 
 - GPU-accelerated transcription via whisper.cpp on your DGX Spark
 - Cross-platform clipboard output (macOS, Windows, Linux)
 - Minimal dependencies, no cloud required
+- Optional local LLM answers: prefix speech with "question" or "query" to query MiniMax via vLLM
 
 ## Architecture
 
@@ -73,13 +74,9 @@ On first launch, enter your DGX Spark's IP and port (e.g., `192.168.1.45:8025`).
 
 ## Configuration
 
-Edit the config section in `client/code/client.py`:
+All settings (DGX server + LLM endpoint/model + LLM_ENABLED) are stored in `client/code/client_config.json` (created on first run with prompts; gitignored). Edit the JSON or delete it to reconfigure. Set "LLM_ENABLED": false to disable question/query LLM handling. LLM base URL and model are prompted at first launch.
 
-| Setting    | Default              | Description                        |
-|------------|----------------------|------------------------------------|
-| `MODEL_NAME` | `"whisper-large-v3"` | Model name sent to server         |
-| `HOTKEY`   | `Key.alt_r`          | Push-to-talk key (Right Option/Alt)|
-| `GAIN`     | `4.0`                | Audio amplification (3–8 typical)  |
+New: If speech starts with "question" or "query", the rest is sent to the configured local LLM and the answer (instead of raw text) is copied to clipboard.
 
 ## Troubleshooting
 
