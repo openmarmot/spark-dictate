@@ -1,0 +1,6 @@
+spark-dictate change log
+
+---------------------------------
+May 25 2026
+- added LLM answers when you prefix your prompt with "question|query"
+- added text to speech for LLM answer responses

@@ -27,7 +27,11 @@ def load_client_config():
         "DGX_SERVER": None,
         "LLM_BASE_URL": None,
         "LLM_MODEL": "cyankiwi/MiniMax-M2.7-AWQ-4bit",
-        "LLM_ENABLED": True
+        "LLM_ENABLED": True,
+        "TTS_BASE_URL": None,
+        "TTS_MODEL": "kokoro",
+        "TTS_VOICE": "af_heart",
+        "TTS_ENABLED": True
     }
     if os.path.exists(CONFIG_PATH):
         try:
@@ -41,6 +45,11 @@ def load_client_config():
         fixed=_fix_llm_url(cfg["LLM_BASE_URL"])
         if fixed!=cfg.get("LLM_BASE_URL"):
             cfg["LLM_BASE_URL"]=fixed
+            needs_save=True
+    if cfg.get("TTS_BASE_URL"):
+        fixed=_fix_llm_url(cfg["TTS_BASE_URL"])
+        if fixed!=cfg.get("TTS_BASE_URL"):
+            cfg["TTS_BASE_URL"]=fixed
             needs_save=True
     if not cfg.get("DGX_SERVER"):
         server_input = input("\nEnter DGX Spark whisper.cpp server (e.g. 192.168.1.45:8025) [default: localhost:8025]: ").strip()
@@ -63,10 +72,31 @@ def load_client_config():
     if "LLM_ENABLED" not in cfg:
         cfg["LLM_ENABLED"] = True
         needs_save = True
+    if "TTS_ENABLED" not in cfg:
+        cfg["TTS_ENABLED"] = True
+        needs_save = True
+    if not cfg.get("TTS_BASE_URL"):
+        tts_url = input("\nEnter TTS server base URL (OpenAI-compatible, e.g. http://192.168.1.45:8880/v1) [press Enter to skip]: ").strip()
+        if tts_url:
+            cfg["TTS_BASE_URL"] = _fix_llm_url(tts_url)
+            needs_save = True
+    if cfg.get("TTS_BASE_URL"):
+        if not cfg.get("TTS_MODEL"):
+            tts_model = input("Enter TTS model name [default: kokoro]: ").strip()
+            if not tts_model:
+                tts_model = "kokoro"
+            cfg["TTS_MODEL"] = tts_model
+            needs_save = True
+        if not cfg.get("TTS_VOICE"):
+            tts_voice = input("Enter TTS voice [default: af_heart]: ").strip()
+            if not tts_voice:
+                tts_voice = "af_heart"
+            cfg["TTS_VOICE"] = tts_voice
+            needs_save = True
     if needs_save:
         try:
             with open(CONFIG_PATH, "w") as f:
-                json.dump({k: cfg[k] for k in ["MODEL_NAME", "GAIN", "DGX_SERVER", "LLM_BASE_URL", "LLM_MODEL", "LLM_ENABLED"]}, f, indent=2)
+                json.dump({k: cfg[k] for k in ["MODEL_NAME", "GAIN", "DGX_SERVER", "LLM_BASE_URL", "LLM_MODEL", "LLM_ENABLED", "TTS_BASE_URL", "TTS_MODEL", "TTS_VOICE", "TTS_ENABLED"]}, f, indent=2)
             print(f"✅ Saved config to {CONFIG_PATH}")
         except Exception as e:
             print("⚠️  Could not save config:", e)
@@ -79,9 +109,19 @@ DGX_BASE_URL = f"http://{config['DGX_SERVER']}"
 LLM_BASE_URL = _fix_llm_url(config.get("LLM_BASE_URL"))
 LLM_MODEL = config["LLM_MODEL"]
 LLM_ENABLED = bool(config.get("LLM_ENABLED", True))
+TTS_BASE_URL = _fix_llm_url(config.get("TTS_BASE_URL")) if config.get("TTS_BASE_URL") else None
+TTS_MODEL = config.get("TTS_MODEL", "kokoro")
+TTS_VOICE = config.get("TTS_VOICE", "af_heart")
+TTS_ENABLED = bool(config.get("TTS_ENABLED", True))
 print(f"✅ Connected to: {DGX_BASE_URL}")
 print(f"🤖 LLM ready: {LLM_MODEL} @ {LLM_BASE_URL}")
-print(f"   LLM queries: {'enabled' if LLM_ENABLED else 'disabled'}\n")
+print(f"   LLM queries: {'enabled' if LLM_ENABLED else 'disabled'}")
+if TTS_BASE_URL:
+    print(f"🔊 TTS ready: {TTS_MODEL}/{TTS_VOICE} @ {TTS_BASE_URL}")
+    print(f"   Spoken LLM answers: {'enabled' if TTS_ENABLED else 'disabled'}")
+else:
+    print("🔊 TTS: disabled (no base URL configured)")
+print()
 # ========================================================
 
 def ask_llm(prompt):
@@ -114,6 +154,66 @@ def ask_llm(prompt):
         return f"(LLM unavailable: {e})"
 
 # ====================== END LLM ======================
+
+# ====================== TTS (Kokoro / OpenAI-compatible) ======================
+def play_wav(path):
+    """Play a WAV file using sounddevice (reuses existing deps, cross-platform)."""
+    try:
+        with wave.open(path, 'rb') as wf:
+            sr = wf.getframerate()
+            nch = wf.getnchannels()
+            sampwidth = wf.getsampwidth()
+            frames = wf.readframes(wf.getnframes())
+            # Convert to float32 [-1,1]
+            if sampwidth == 2:
+                audio = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0
+            elif sampwidth == 1:
+                audio = (np.frombuffer(frames, dtype=np.uint8).astype(np.float32) - 128) / 128.0
+            elif sampwidth == 4:
+                audio = np.frombuffer(frames, dtype=np.int32).astype(np.float32) / 2147483648.0
+            else:
+                audio = np.frombuffer(frames, dtype=np.float32)
+            if nch > 1:
+                audio = audio.reshape(-1, nch)
+            sd.play(audio, samplerate=sr)
+            sd.wait()
+        print("🔊 TTS playback complete")
+    except Exception as e:
+        print("Playback failed:", e)
+
+
+def tts_speak(text):
+    """Send text to configured Kokoro TTS server and play the returned WAV."""
+    if not text or not text.strip():
+        return
+    if not TTS_ENABLED or not TTS_BASE_URL:
+        return
+    try:
+        payload = {
+            "model": TTS_MODEL,
+            "input": text.strip(),
+            "voice": TTS_VOICE,
+            "response_format": "wav"
+        }
+        url = _fix_llm_url(TTS_BASE_URL) + "/audio/speech"
+        print(f"🔊 Sending to TTS ({TTS_MODEL}/{TTS_VOICE}) ...")
+        resp = requests.post(url, json=payload, timeout=120)
+        if resp.status_code == 200 and resp.content:
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+                tmp.write(resp.content)
+                tmp_path = tmp.name
+            try:
+                play_wav(tmp_path)
+            finally:
+                try:
+                    os.unlink(tmp_path)
+                except Exception:
+                    pass
+        else:
+            print(f"TTS error {resp.status_code}: {resp.text[:200] if resp.text else 'no content'}")
+    except Exception as e:
+        print("TTS request failed:", e)
+# ====================== END TTS ======================
 
 # Detect OS only once at startup
 SYSTEM = platform.system()
@@ -232,6 +332,10 @@ def transcribe_and_paste():
                             print("⚠️  No clipboard tool found (install xclip or wl-clipboard)")
 
                 print("📋 Copied to clipboard — just hit Ctrl+V (or ⌘V on Mac)")
+
+                # Speak LLM answers (after clipboard feedback so user sees paste instruction immediately)
+                if LLM_ENABLED and (lower_text.startswith("question") or lower_text.startswith("query")):
+                    tts_speak(text)
             else:
                 print("⚠️  Only '.' returned")
         else:
