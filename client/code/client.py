@@ -16,7 +16,10 @@ import json
 # ========================= CONFIG =========================
 CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "client_config.json")
 HOTKEY = keyboard.Key.alt_r  # Right Option (⌥) on Mac / Right Alt on Windows/Linux
-
+def _fix_llm_url(u):
+    u=(u or "").strip()
+    if u and not u.startswith(("http://","https://")):u="http://"+u
+    return u.rstrip("/")
 def load_client_config():
     cfg = {
         "MODEL_NAME": "whisper-large-v3",
@@ -34,6 +37,11 @@ def load_client_config():
         except Exception:
             pass
     needs_save = False
+    if cfg.get("LLM_BASE_URL"):
+        fixed=_fix_llm_url(cfg["LLM_BASE_URL"])
+        if fixed!=cfg.get("LLM_BASE_URL"):
+            cfg["LLM_BASE_URL"]=fixed
+            needs_save=True
     if not cfg.get("DGX_SERVER"):
         server_input = input("\nEnter DGX Spark whisper.cpp server (e.g. 192.168.1.45:8025) [default: localhost:8025]: ").strip()
         if not server_input:
@@ -44,7 +52,7 @@ def load_client_config():
         llm_url = input("\nEnter local OpenAI-compatible LLM base URL (e.g. http://10.12.0.50:8000/v1) [default: http://localhost:8000/v1]: ").strip()
         if not llm_url:
             llm_url = "http://localhost:8000/v1"
-        cfg["LLM_BASE_URL"] = llm_url
+        cfg["LLM_BASE_URL"] = _fix_llm_url(llm_url)
         needs_save = True
     if not cfg.get("LLM_MODEL"):
         llm_model = input("Enter LLM model name [default: cyankiwi/MiniMax-M2.7-AWQ-4bit]: ").strip()
@@ -68,7 +76,7 @@ config = load_client_config()
 MODEL_NAME = config["MODEL_NAME"]
 GAIN = config["GAIN"]
 DGX_BASE_URL = f"http://{config['DGX_SERVER']}"
-LLM_BASE_URL = config["LLM_BASE_URL"]
+LLM_BASE_URL = _fix_llm_url(config.get("LLM_BASE_URL"))
 LLM_MODEL = config["LLM_MODEL"]
 LLM_ENABLED = bool(config.get("LLM_ENABLED", True))
 print(f"✅ Connected to: {DGX_BASE_URL}")
@@ -88,7 +96,7 @@ def ask_llm(prompt):
             "temperature": 0.6
         }
         resp = requests.post(
-            f"{LLM_BASE_URL.rstrip('/')}/chat/completions",
+            _fix_llm_url(LLM_BASE_URL)+"/chat/completions",
             json=payload,
             timeout=120
         )
